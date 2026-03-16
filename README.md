@@ -69,26 +69,6 @@ Weights are tunable via API query parameters. The semantic transformer carries t
 
 ---
 
-## Quick Start
-
-```bash
-cd recipe-recommender
-
-python -m venv venv
-source venv/bin/activate        # Mac/Linux
-# venv\Scripts\activate          # Windows
-
-pip install -r requirements.txt
-
-uvicorn app:app --reload --port 8000
-```
-
-Open **http://localhost:8000**.
-
-> **Startup time:** 4-6 minutes on first run (fetches 598 meals from TheMealDB, downloads MPNet and MobileNetV2 weights, encodes all text and images). Subsequent starts with cached model weights are faster.
-
----
-
 ## Tech Stack
 
 | Component | Technology | Purpose |
