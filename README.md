@@ -1,55 +1,71 @@
-# Mise v2 — ML-Powered Recipe Recommender
+# Mise v4 | ML-Powered Recipe Recommender
 
-A recipe recommender powered by **MobileNetV2 image embeddings** and **TF-IDF text similarity**, plus ingredient matching and cuisine/category filtering.
+A multi-model recipe recommender combining **MPNet** (sentence transformer), **MobileNetV2** (CNN), **BM25**, and **stemmed ingredient matching** to find recipes by meaning, appearance, keywords, and what's in your kitchen.
 
-Built with **FastAPI** + **TensorFlow** + **scikit-learn** + **TheMealDB**.
+Built with **FastAPI** + **PyTorch** + **TensorFlow** + **scikit-learn** + **NLTK** + **TheMealDB**.
 
 ---
 
 ## Features
 
-- **Ingredient matching** — enter what's in your kitchen, ranked by overlap
-- **Cuisine & category filters** — narrow by region and meal type
-- **Visual similarity (MobileNetV2)** — pick a reference dish, find meals that *look* similar using learned CNN features (1280-d embeddings)
-- **Text similarity (TF-IDF)** — describe what you're craving in natural language, or find recipes with similar instructions/ingredients via TF-IDF with bigrams
-- **Combined 5-axis scoring** — all signals weighted and merged into a single relevance score
-- **Meal detail modal** — full recipe with visually similar *and* textually similar neighbors
+- **Semantic search (MPNet)** | describe what you're craving in natural language and the transformer finds recipes by *meaning*, not just keywords
+- **Visual similarity (MobileNetV2)** | pick a reference dish and find meals that *look* similar using 1280-d CNN embeddings
+- **Keyword ranking (BM25)** | the same algorithm search engines use, with cooking-specific stop word removal
+- **Stemmed ingredient matching** | "tomatoes" matches canned tomatoes, roma tomatoes, tomato paste, and cherry tomatoes using Porter stemming with a core-word heuristic
+- **Cuisine & category filters** | narrow by region and meal type
+- **7-axis combined scoring** | all signals weighted and merged into a single relevance score, fully tunable via API
+- **Meal detail modal** | full recipe with visually similar, semantically similar, and keyword-similar neighbors side by side
+
+---
 
 ## How the ML Works
 
-### MobileNetV2 Image Embeddings
+### MPNet Sentence Transformer (768-d)
 
-Instead of hand-crafted color histograms, we now run every meal thumbnail through **MobileNetV2** (pretrained on ImageNet) with the classification head removed. This produces a **1280-dimensional embedding** per image that captures high-level visual features — textures, shapes, colors, and food-like patterns the network learned from millions of images.
+The primary text engine. Each recipe is converted into a natural-language description combining the name, cuisine, ingredients, tags, and instructions. These documents are encoded with **all-mpnet-base-v2**, the highest-quality general-purpose sentence transformer, producing 768-dimensional embeddings.
 
-Similarity is computed via cosine distance between embedding vectors. This means "creamy white pasta" will match other creamy dishes, and "charred grilled meat" will find similar grilled foods — far beyond what raw color matching can achieve.
+Unlike keyword matching, the transformer understands that "pasta bolognese" and "spaghetti bolognese" are the same concept, and that "fry garlic in oil" and "saute minced garlic with oil" mean the same thing. It was trained on over 1 billion sentence pairs to learn semantic similarity.
 
-### TF-IDF Text Similarity
+Free-text queries are encoded with the same model and compared via cosine similarity against all recipe embeddings.
 
-Each meal is converted into a text document combining:
-- Ingredients and their measures
-- Category and cuisine/area (double-weighted for emphasis)
-- Tags
-- Full cooking instructions
+### MobileNetV2 Image Embeddings (1280-d)
 
-These documents are vectorized with **TF-IDF** using:
-- Up to 5,000 features
-- Unigram + bigram tokens (e.g., "olive oil", "stir fry")
-- Sublinear TF scaling (log-dampened term frequency)
-- English stop word removal
+Every meal thumbnail is downloaded and passed through **MobileNetV2** (pretrained on ImageNet) with the classification head removed. The global average pooling layer outputs a 1280-dimensional feature vector capturing textures, shapes, colors, and visual patterns.
 
-You can either pick a reference meal (and find meals with similar text profiles) or type a free-text query like "spicy chicken stir fry with noodles" and the system will TF-IDF-match it against all recipes.
+Cosine similarity between vectors finds visually similar dishes | a creamy soup will match other creamy soups, a charred grilled dish will find similar grilled foods.
+
+### BM25 (Okapi)
+
+A custom implementation of the BM25 ranking algorithm, the industry standard used by Elasticsearch and Solr. BM25 improves on TF-IDF with:
+
+- **Term frequency saturation** (parameter k1=1.5) | mentioning "chicken" 20 times doesn't make a recipe 20x more relevant
+- **Document length normalization** (parameter b=0.75) | a short focused recipe mentioning "garlic" once scores higher than a long recipe mentioning it once among 500 words
+
+The index uses custom cooking-specific stop words (50+ terms like "add", "cook", "stir", "minutes") to prevent ubiquitous recipe verbs from diluting the signal.
+
+### Stemmed Ingredient Matching
+
+Ingredient matching uses NLTK's Porter Stemmer with a core-word heuristic:
+
+- **Core word identification** | the last word in an ingredient phrase is the core ("baby plum **tomatoes**", "canned **tomatoes**", "plum **sauce**")
+- **Core match required** | "baby plum tomatoes" matches "canned tomatoes" (core: tomato = tomato) but NOT "plum sauce" (core: tomato != sauce)
+- **Modifier verification** | for multi-word ingredients, at least one modifier must also match. "Soy sauce" matches "dark soy sauce" (modifier "soy" found) but NOT "fish sauce" (modifier "soy" not found)
+
+This prevents false positives like "plum" in "baby plum tomatoes" matching "plum sauce" while still broadly matching across all tomato variants.
 
 ### Scoring Weights
 
-| Signal | Default Weight | Method |
+| Signal | Weight | Method |
 |---|---|---|
-| Ingredients | 0.30 | Fraction of user's ingredients found in recipe |
-| Category | 0.15 | Exact match |
-| Cuisine/Area | 0.15 | Exact match |
-| Image (CNN) | 0.20 | Cosine similarity of MobileNetV2 embeddings |
-| Text (TF-IDF) | 0.20 | Cosine similarity of TF-IDF vectors |
+| Semantic (MPNet) | 0.35 | Cosine similarity of 768-d sentence embeddings |
+| Ingredients | 0.20 | Stemmed core-word matching with modifier verification |
+| Image (CNN) | 0.15 | Cosine similarity of 1280-d MobileNetV2 embeddings |
+| BM25 | 0.10 | Okapi BM25 keyword ranking with cooking stop words |
+| Category | 0.10 | Exact match |
+| Area/Cuisine | 0.10 | Exact match |
+| TF-IDF | 0.00 | Disabled by default (available via API param) |
 
-All weights are adjustable via API query params.
+Weights are tunable via API query parameters. The semantic transformer carries the highest weight because it captures meaning rather than just keywords, while BM25 ensures exact name matches aren't buried under semantically similar results.
 
 ---
 
@@ -59,7 +75,8 @@ All weights are adjustable via API query params.
 cd recipe-recommender
 
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate        # Mac/Linux
+# venv\Scripts\activate          # Windows
 
 pip install -r requirements.txt
 
@@ -68,7 +85,7 @@ uvicorn app:app --reload --port 8000
 
 Open **http://localhost:8000**.
 
-> **Startup time:** ~2-4 minutes on first run (fetches meals, downloads ImageNet weights, processes ~300 images through MobileNetV2). Subsequent starts with cached weights are faster.
+> **Startup time:** 4-6 minutes on first run (fetches 598 meals from TheMealDB, downloads MPNet and MobileNetV2 weights, encodes all text and images). Subsequent starts with cached model weights are faster.
 
 ---
 
@@ -78,8 +95,8 @@ Open **http://localhost:8000**.
 |---|---|
 | `GET /` | Web UI |
 | `GET /api/meta` | Categories, areas, ingredients, index stats |
-| `GET /api/recommend` | Combined recommendation (see params below) |
-| `GET /api/meal/{id}` | Full detail + visual & text neighbors |
+| `GET /api/recommend` | Combined 7-axis recommendation |
+| `GET /api/meal/{id}` | Full detail + visual, semantic, and BM25 neighbors |
 | `GET /api/random?n=6` | Random meals |
 
 ### Recommend Params
@@ -90,14 +107,30 @@ Open **http://localhost:8000**.
   &category=seafood
   &area=japanese
   &similar_to=52772
-  &text_query=spicy noodle soup
+  &text_query=something warm and comforting with noodles
   &limit=12
-  &w_ingredient=0.3
-  &w_category=0.15
-  &w_area=0.15
-  &w_image=0.2
-  &w_text=0.2
+  &w_ingredient=0.20
+  &w_semantic=0.35
+  &w_image=0.15
+  &w_bm25=0.10
+  &w_category=0.10
+  &w_area=0.10
+  &w_tfidf=0.00
 ```
+
+---
+
+## Tech Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| API | FastAPI | Async REST API with auto-generated Swagger docs |
+| Semantic search | all-mpnet-base-v2 (PyTorch) | 768-d sentence embeddings for meaning-based matching |
+| Image similarity | MobileNetV2 (TensorFlow) | 1280-d CNN embeddings for visual matching |
+| Keyword ranking | BM25 (custom implementation) | Search-engine-grade keyword scoring |
+| Keyword fallback | TF-IDF (scikit-learn) | Statistical keyword baseline |
+| Stemming | Porter Stemmer (NLTK) | Ingredient fuzzy matching |
+| Data source | TheMealDB API | 598 meals, 877 ingredients |
 
 ---
 
@@ -109,13 +142,13 @@ Open **http://localhost:8000**.
 2. New **Web Service** on [render.com](https://render.com)
 3. Build: `pip install -r requirements.txt`
 4. Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. Set instance to at least **1 GB RAM** (TensorFlow needs it)
+5. Instance: at least **2 GB RAM** (TensorFlow + PyTorch + MPNet)
 
 ### Railway
 
 1. Push to GitHub
 2. Railway auto-detects `Procfile`
-3. Ensure at least 1 GB memory
+3. Ensure at least 2 GB memory
 
 ### Docker
 
@@ -124,7 +157,7 @@ docker build -t mise-recommender .
 docker run -p 8000:8000 mise-recommender
 ```
 
-> **Memory note:** TensorFlow + MobileNetV2 + 300 image embeddings requires ~800MB–1GB RAM. Use `tensorflow-cpu` (already in requirements) to avoid GPU dependencies.
+> **Memory:** TensorFlow + PyTorch + MPNet + 598 image embeddings requires ~1.5-2 GB RAM. Requirements use `tensorflow-cpu` and `torch+cpu` to avoid GPU dependencies.
 
 ---
 
@@ -132,25 +165,32 @@ docker run -p 8000:8000 mise-recommender
 
 ```
 recipe-recommender/
-├── app.py              # FastAPI + MobileNetV2 + TF-IDF engine
+├── app.py              # FastAPI + MPNet + MobileNetV2 + BM25 engine
 ├── templates/
-│   └── index.html      # Frontend UI
+│   └── index.html      # Frontend UI (frog-green theme)
 ├── static/
-├── requirements.txt    # Includes tensorflow-cpu, scikit-learn
-├── Procfile
-├── Dockerfile
+├── requirements.txt    # PyTorch, TensorFlow, sentence-transformers, NLTK
+├── Procfile            # Render/Railway deployment
+├── Dockerfile          # Container deployment
 └── README.md
 ```
 
 ---
 
-## Future Enhancements
+## Known Limitations & Future Work
 
-- **Fine-tune embeddings** on food-specific datasets (Food-101, Recipe1M)
-- **Word2Vec / BERT embeddings** for richer text understanding
-- **Collaborative filtering** with user accounts and favorites
-- **Learned ranking model** trained on click/engagement data
-- **Nutritional data** integration and dietary filtering
+### Current Limitations
+- Single-word dish names not in the database (e.g., "minestrone") return poor results because the transformer lacks culinary domain knowledge to expand them into descriptive queries
+- Abstract food concepts like "light" or "comforting" don't translate well because the model learned language from text, not from the experience of eating
+- Visual similarity matches on photographic style rather than food content | two dishes from the same cuisine may look similar despite being different foods
+
+### Planned Enhancements
+- **LLM query expansion** | use an LLM to expand dish names into rich descriptions before semantic search ("minestrone" becomes "hearty Italian vegetable soup with tomato broth, beans, and pasta")
+- **Structured embeddings** | separate embeddings for ingredients, cooking method, and cuisine context instead of one text blob
+- **Cuisine proximity scoring** | encode regional relationships so Syrian and Egyptian dishes score as culturally related
+- **Fine-tuned image model** | retrain on Food-101 for food-specific visual understanding
+- **Collaborative filtering** | user accounts with favorites to enable "people who liked X also liked Y"
+- **Learned ranking weights** | train on user click data to optimize the 7-axis scoring automatically
 
 ---
 
