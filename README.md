@@ -89,37 +89,6 @@ Open **http://localhost:8000**.
 
 ---
 
-## API Endpoints
-
-| Endpoint | Description |
-|---|---|
-| `GET /` | Web UI |
-| `GET /api/meta` | Categories, areas, ingredients, index stats |
-| `GET /api/recommend` | Combined 7-axis recommendation |
-| `GET /api/meal/{id}` | Full detail + visual, semantic, and BM25 neighbors |
-| `GET /api/random?n=6` | Random meals |
-
-### Recommend Params
-
-```
-/api/recommend?
-  ingredients=chicken,garlic,rice
-  &category=seafood
-  &area=japanese
-  &similar_to=52772
-  &text_query=something warm and comforting with noodles
-  &limit=12
-  &w_ingredient=0.20
-  &w_semantic=0.35
-  &w_image=0.15
-  &w_bm25=0.10
-  &w_category=0.10
-  &w_area=0.10
-  &w_tfidf=0.00
-```
-
----
-
 ## Tech Stack
 
 | Component | Technology | Purpose |
@@ -131,33 +100,6 @@ Open **http://localhost:8000**.
 | Keyword fallback | TF-IDF (scikit-learn) | Statistical keyword baseline |
 | Stemming | Porter Stemmer (NLTK) | Ingredient fuzzy matching |
 | Data source | TheMealDB API | 598 meals, 877 ingredients |
-
----
-
-## Deploying
-
-### Render
-
-1. Push to GitHub
-2. New **Web Service** on [render.com](https://render.com)
-3. Build: `pip install -r requirements.txt`
-4. Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. Instance: at least **2 GB RAM** (TensorFlow + PyTorch + MPNet)
-
-### Railway
-
-1. Push to GitHub
-2. Railway auto-detects `Procfile`
-3. Ensure at least 2 GB memory
-
-### Docker
-
-```bash
-docker build -t mise-recommender .
-docker run -p 8000:8000 mise-recommender
-```
-
-> **Memory:** TensorFlow + PyTorch + MPNet + 598 image embeddings requires ~1.5-2 GB RAM. Requirements use `tensorflow-cpu` and `torch+cpu` to avoid GPU dependencies.
 
 ---
 
