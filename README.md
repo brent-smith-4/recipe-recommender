@@ -4,6 +4,8 @@ A multi-model recipe recommender combining **MPNet** (sentence transformer), **M
 
 Built with **FastAPI** + **PyTorch** + **TensorFlow** + **scikit-learn** + **NLTK** + **TheMealDB**.
 
+![Mise Recipe Recommender](screenshot.png)
+
 ---
 
 ## Features
