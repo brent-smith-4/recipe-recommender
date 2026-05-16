@@ -1,20 +1,19 @@
 """
-Recipe Recommender v4 -- FastAPI backend
+Recipe Recommender v5 -- FastAPI backend
 ML Stack:
-  - MobileNetV2 learned embeddings for image similarity (1280-d CNN)
-  - Sentence Transformer (all-mpnet-base-v2) for semantic text similarity (768-d)
-  - BM25 (Okapi) for keyword ranking (replaces TF-IDF as primary keyword engine)
-  - TF-IDF with tuned params + cooking stop words (secondary keyword signal)
+  - Sentence Transformer (all-MiniLM-L6-v2) for semantic text similarity (384-d)
+  - BM25 (Okapi) for keyword ranking (industry-standard keyword engine)
   - Ingredient overlap, category, and area matching
 """
 
 import asyncio
-import io
 import logging
 import math
 import os
+import pickle
 import random
 from collections import defaultdict
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -23,8 +22,6 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
 
 # ---------------------------------------------------------------------------
@@ -83,51 +80,16 @@ COOKING_STOP_WORDS = {
 # ---------------------------------------------------------------------------
 # Lazy-load heavy models
 # ---------------------------------------------------------------------------
-_mobilenet_model = None
 _sentence_model = None
 
 
-def _get_mobilenet():
-    """Load MobileNetV2 once, stripping the classification head."""
-    global _mobilenet_model
-    if _mobilenet_model is None:
-        os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-        import tensorflow as tf
-        tf.get_logger().setLevel("ERROR")
-
-        base = tf.keras.applications.MobileNetV2(
-            weights="imagenet",
-            include_top=False,
-            pooling="avg",
-            input_shape=(224, 224, 3),
-        )
-        base.trainable = False
-        _mobilenet_model = base
-        LOG.info("MobileNetV2 loaded (1280-d embedding layer)")
-    return _mobilenet_model
-
-
 def _get_sentence_model():
-    """
-    Load the sentence-transformer model once.
-
-    UPGRADE: all-mpnet-base-v2 (768-d) replaces all-MiniLM-L6-v2 (384-d).
-
-    MPNet is the highest-quality general-purpose sentence transformer:
-      - 768-dimensional embeddings (vs 384 for MiniLM)
-      - Trained on over 1 billion sentence pairs
-      - Scores #1 on Semantic Textual Similarity benchmarks
-      - ~2x slower than MiniLM but with 598 meals this is negligible
-
-    The richer embedding space means it captures finer distinctions:
-    MiniLM might put "grilled chicken" and "fried chicken" at similar
-    distances, while MPNet better separates cooking methods.
-    """
+    """Load the sentence-transformer model once."""
     global _sentence_model
     if _sentence_model is None:
         from sentence_transformers import SentenceTransformer
-        _sentence_model = SentenceTransformer("all-mpnet-base-v2")
-        LOG.info("Sentence Transformer loaded (all-mpnet-base-v2, 768-d)")
+        _sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        LOG.info("Sentence Transformer loaded (all-MiniLM-L6-v2, 384-d)")
     return _sentence_model
 
 
@@ -135,13 +97,14 @@ def _get_sentence_model():
 # Config
 # ---------------------------------------------------------------------------
 MEALDB_BASE = "https://www.themealdb.com/api/json/v1/1"
+CACHE_PATH = Path("data/cache.pkl")
 LOG = logging.getLogger("recommender")
 logging.basicConfig(level=logging.INFO)
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
-app = FastAPI(title="Recipe Recommender v4", version="4.0.0")
+app = FastAPI(title="Recipe Recommender v5", version="5.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -160,19 +123,13 @@ CATEGORY_INDEX: dict[str, set] = defaultdict(set)
 AREA_INDEX: dict[str, set] = defaultdict(set)
 
 # ML features
-IMAGE_FEATURES: dict[str, np.ndarray] = {}        # idMeal -> 1280-d MobileNetV2
-SEMANTIC_EMBEDDINGS: dict[str, np.ndarray] = {}    # idMeal -> 768-d MPNet embedding
-SEMANTIC_MATRIX: np.ndarray = None                  # (n_meals, 768) dense matrix
+SEMANTIC_EMBEDDINGS: dict[str, np.ndarray] = {}    # idMeal -> 384-d MiniLM embedding
+SEMANTIC_MATRIX: np.ndarray = None                  # (n_meals, 384) dense matrix
 SEMANTIC_MEAL_IDS: list[str] = []                   # row index -> idMeal
 
 # BM25 index
 BM25_INDEX = None                                    # BM25Okapi instance
 BM25_MEAL_IDS: list[str] = []
-
-# TF-IDF (tuned, secondary)
-TFIDF_MATRIX = None
-TFIDF_VECTORIZER: TfidfVectorizer = None
-TFIDF_MEAL_IDS: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -393,71 +350,10 @@ async def _fetch_all_meals(client: httpx.AsyncClient) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Image embeddings (MobileNetV2)
-# ---------------------------------------------------------------------------
-async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[Image.Image]:
-    try:
-        r = await client.get(url + "/preview", timeout=10)
-        if r.status_code == 200:
-            return Image.open(io.BytesIO(r.content))
-    except Exception:
-        pass
-    return None
-
-
-async def _build_image_index(meals: list[dict]):
-    """Download thumbnails and extract MobileNetV2 embeddings."""
-    LOG.info("Downloading thumbnails and extracting CNN embeddings...")
-
-    images: dict[str, Image.Image] = {}
-    async with httpx.AsyncClient() as client:
-        for i in range(0, len(meals), 10):
-            batch = meals[i : i + 10]
-            tasks = []
-            for m in batch:
-                url = m.get("strMealThumb")
-                if url:
-                    tasks.append((m["idMeal"], _download_image(client, url)))
-            results = await asyncio.gather(*(t[1] for t in tasks))
-            for (mid, _), img in zip(tasks, results):
-                if img is not None:
-                    images[mid] = img
-            await asyncio.sleep(0.15)
-
-    LOG.info(f"Downloaded {len(images)} images, running through MobileNetV2...")
-
-    model = _get_mobilenet()
-    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-
-    batch_size = 16
-    meal_ids = list(images.keys())
-    for i in range(0, len(meal_ids), batch_size):
-        batch_ids = meal_ids[i : i + batch_size]
-        batch_arrays = []
-        for mid in batch_ids:
-            img = images[mid].resize((224, 224)).convert("RGB")
-            arr = np.array(img, dtype=np.float32)
-            batch_arrays.append(arr)
-
-        batch_np = np.stack(batch_arrays)
-        batch_np = preprocess_input(batch_np)
-        embeddings = model.predict(batch_np, verbose=0)
-
-        for j, mid in enumerate(batch_ids):
-            vec = embeddings[j].flatten()
-            norm = np.linalg.norm(vec)
-            IMAGE_FEATURES[mid] = vec / norm if norm > 0 else vec
-
-    LOG.info(f"Built MobileNetV2 embeddings for {len(IMAGE_FEATURES)} meals (1280-d each)")
-
-
-# ---------------------------------------------------------------------------
-# Sentence Transformer embeddings (all-mpnet-base-v2)
+# Sentence Transformer embeddings (all-MiniLM-L6-v2)
 # ---------------------------------------------------------------------------
 def _build_semantic_index(meals: list[dict]):
-    """
-    Encode every meal's text into a 768-d dense vector using MPNet.
-    """
+    """Encode every meal's text into a 384-d dense vector using MiniLM."""
     global SEMANTIC_MATRIX, SEMANTIC_MEAL_IDS
 
     model = _get_sentence_model()
@@ -470,7 +366,7 @@ def _build_semantic_index(meals: list[dict]):
             documents.append(doc)
             meal_ids.append(m["idMeal"])
 
-    LOG.info(f"Encoding {len(documents)} meal descriptions with MPNet...")
+    LOG.info(f"Encoding {len(documents)} meal descriptions with MiniLM...")
 
     embeddings = model.encode(
         documents,
@@ -573,102 +469,52 @@ def _bm25_meal_scores(meal_id: str) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# TF-IDF (tuned parameters, secondary signal)
-# ---------------------------------------------------------------------------
-def _build_tfidf_index(meals: list[dict]):
-    """
-    TF-IDF with tuned parameters for this specific dataset:
-      - max_features=3000 (reduced from 5000; 598 recipes don't need 5k)
-      - min_df=1 (was 2; lets rare distinctive terms like "szechuan" contribute)
-      - ngram_range=(1,2) kept for bigrams like "olive oil"
-      - Custom stop words: English defaults + cooking-specific terms
-    """
-    global TFIDF_MATRIX, TFIDF_VECTORIZER, TFIDF_MEAL_IDS
-
-    # Merge sklearn's English stop words with our cooking stop words
-    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-    combined_stops = list(ENGLISH_STOP_WORDS | COOKING_STOP_WORDS)
-
-    documents = []
-    meal_ids = []
-    for m in meals:
-        doc = _build_keyword_document(m)
-        if doc.strip():
-            documents.append(doc)
-            meal_ids.append(m["idMeal"])
-
-    TFIDF_VECTORIZER = TfidfVectorizer(
-        max_features=3000,           # tuned down for small corpus
-        stop_words=combined_stops,   # English + cooking stop words
-        ngram_range=(1, 2),          # unigrams + bigrams
-        min_df=1,                    # allow rare but distinctive terms
-        sublinear_tf=True,           # log-scaled term frequency
-    )
-    TFIDF_MATRIX = TFIDF_VECTORIZER.fit_transform(documents)
-    TFIDF_MEAL_IDS = meal_ids
-
-    LOG.info(
-        f"Built TF-IDF index: {TFIDF_MATRIX.shape[0]} docs x "
-        f"{TFIDF_MATRIX.shape[1]} features (tuned)"
-    )
-
-
-def _tfidf_similarity(meal_id: str) -> dict[str, float]:
-    if TFIDF_MATRIX is None or meal_id not in TFIDF_MEAL_IDS:
-        return {}
-    idx = TFIDF_MEAL_IDS.index(meal_id)
-    row = TFIDF_MATRIX[idx]
-    sims = sklearn_cosine(row, TFIDF_MATRIX).flatten()
-    return {
-        TFIDF_MEAL_IDS[i]: float(s)
-        for i, s in enumerate(sims)
-        if TFIDF_MEAL_IDS[i] != meal_id
-    }
-
-
-def _tfidf_query_similarity(query_text: str) -> dict[str, float]:
-    if TFIDF_MATRIX is None or TFIDF_VECTORIZER is None:
-        return {}
-    query_vec = TFIDF_VECTORIZER.transform([query_text])
-    sims = sklearn_cosine(query_vec, TFIDF_MATRIX).flatten()
-    return {TFIDF_MEAL_IDS[i]: float(s) for i, s in enumerate(sims)}
-
-
-# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
-@app.on_event("startup")
-async def startup():
-    async with httpx.AsyncClient() as client:
-        meals = await _fetch_all_meals(client)
-
+def _populate_indices(meals: list[dict]) -> None:
     for m in meals:
         mid = m["idMeal"]
         MEALS.append(m)
         MEAL_INDEX[mid] = m
-
         for ing in _parse_ingredients(m):
             INGREDIENT_INDEX[ing].add(mid)
-
         cat = (m.get("strCategory") or "").strip()
         if cat:
             CATEGORY_INDEX[cat.lower()].add(mid)
-
         area = (m.get("strArea") or "").strip()
         if area:
             AREA_INDEX[area.lower()].add(mid)
 
-    # 1. Sentence transformer (MPNet, primary semantic engine)
+
+def _load_from_cache() -> bool:
+    """Load pre-computed embeddings and BM25 index from pickle. Returns True on success."""
+    global SEMANTIC_MATRIX, SEMANTIC_MEAL_IDS, BM25_INDEX, BM25_MEAL_IDS
+    if not CACHE_PATH.exists():
+        return False
+    LOG.info(f"Loading pre-computed cache from {CACHE_PATH} ...")
+    with open(CACHE_PATH, "rb") as fh:
+        cache = pickle.load(fh)
+    _populate_indices(cache["meals"])
+    SEMANTIC_EMBEDDINGS.update(cache["semantic_embeddings"])
+    SEMANTIC_MATRIX = cache["semantic_matrix"]
+    SEMANTIC_MEAL_IDS = cache["semantic_meal_ids"]
+    BM25_INDEX = cache["bm25_index"]
+    BM25_MEAL_IDS = cache["bm25_meal_ids"]
+    LOG.info(f"Cache loaded: {len(MEALS)} meals, embeddings {SEMANTIC_MATRIX.shape}")
+    return True
+
+
+@app.on_event("startup")
+async def startup():
+    if _load_from_cache():
+        return
+    # Fallback: full build (local dev without pre-built cache)
+    LOG.info("No cache found — fetching meals and building indices from scratch.")
+    async with httpx.AsyncClient() as client:
+        meals = await _fetch_all_meals(client)
+    _populate_indices(meals)
     _build_semantic_index(meals)
-
-    # 2. BM25 (primary keyword engine)
     _build_bm25_index(meals)
-
-    # 3. TF-IDF (tuned, secondary keyword signal)
-    _build_tfidf_index(meals)
-
-    # 4. Image embeddings (CNN)
-    await _build_image_index(meals)
 
 
 # ---------------------------------------------------------------------------
@@ -710,11 +556,9 @@ async def meta():
         "areas": areas,
         "ingredients": ingredients,
         "meal_count": len(MEALS),
-        "image_index_size": len(IMAGE_FEATURES),
         "semantic_index_size": len(SEMANTIC_EMBEDDINGS),
         "semantic_dim": SEMANTIC_MATRIX.shape[1] if SEMANTIC_MATRIX is not None else 0,
         "bm25_vocab_size": len(BM25_INDEX.doc_freqs) if BM25_INDEX else 0,
-        "tfidf_vocab_size": TFIDF_MATRIX.shape[1] if TFIDF_MATRIX is not None else 0,
     }
 
 
@@ -723,26 +567,22 @@ async def recommend(
     ingredients: Optional[str] = Query(None, description="Comma-separated ingredients"),
     category: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
-    similar_to: Optional[str] = Query(None, description="Meal ID for visual similarity"),
+    similar_to: Optional[str] = Query(None, description="Meal ID for similar meal recommendations"),
     text_query: Optional[str] = Query(None, description="Free-text semantic search"),
     limit: int = Query(12, ge=1, le=50),
     w_ingredient: float = Query(0.20),
     w_category: float = Query(0.10),
     w_area: float = Query(0.10),
-    w_image: float = Query(0.15),
-    w_semantic: float = Query(0.35, description="Sentence transformer (meaning)"),
-    w_bm25: float = Query(0.10, description="BM25 keyword ranking"),
-    w_tfidf: float = Query(0.00, description="TF-IDF keyword fallback"),
+    w_semantic: float = Query(0.45, description="Sentence transformer (meaning)"),
+    w_bm25: float = Query(0.15, description="BM25 keyword ranking"),
 ):
     """
-    Combined recommendation with 7 scoring axes:
+    Combined recommendation with 5 scoring axes:
       1. Ingredient overlap (set math)
       2. Category match (exact)
       3. Area/cuisine match (exact)
-      4. MobileNetV2 image embedding similarity (CNN)
-      5. MPNet sentence transformer (semantic meaning)
-      6. BM25 keyword ranking (search engine standard)
-      7. TF-IDF keyword similarity (statistical fallback)
+      4. MiniLM sentence transformer (semantic meaning)
+      5. BM25 keyword ranking (search engine standard)
     """
     user_ings = set()
     if ingredients:
@@ -751,12 +591,7 @@ async def recommend(
     target_cat = (category or "").strip().lower()
     target_area = (area or "").strip().lower()
 
-    # Image similarity reference
-    ref_img_feat = None
-    if similar_to and similar_to in IMAGE_FEATURES:
-        ref_img_feat = IMAGE_FEATURES[similar_to]
-
-    # Semantic scores (MPNet -- primary meaning engine)
+    # Semantic scores (MiniLM -- primary meaning engine)
     semantic_scores: dict[str, float] = {}
     if text_query and text_query.strip():
         semantic_scores = _semantic_query_similarity(text_query.strip())
@@ -769,13 +604,6 @@ async def recommend(
         bm25_scores = _bm25_query_scores(text_query.strip())
     elif similar_to:
         bm25_scores = _bm25_meal_scores(similar_to)
-
-    # TF-IDF scores (secondary keyword fallback)
-    tfidf_scores: dict[str, float] = {}
-    if text_query and text_query.strip():
-        tfidf_scores = _tfidf_query_similarity(text_query.strip())
-    elif similar_to:
-        tfidf_scores = _tfidf_similarity(similar_to)
 
     scored: list[tuple[float, dict]] = []
 
@@ -844,25 +672,15 @@ async def recommend(
             meal_area = (meal.get("strArea") or "").strip().lower()
             score += w_area * (1.0 if meal_area == target_area else 0.0)
 
-        # 4) Image similarity (MobileNetV2 CNN)
-        if ref_img_feat is not None and mid in IMAGE_FEATURES:
-            sim = _cosine_sim(ref_img_feat, IMAGE_FEATURES[mid])
-            score += w_image * sim
-
-        # 5) Semantic similarity (MPNet transformer)
+        # 4) Semantic similarity (MiniLM transformer)
         if semantic_scores:
             sem_sim = semantic_scores.get(mid, 0.0)
             score += w_semantic * sem_sim
 
-        # 6) BM25 keyword score
+        # 5) BM25 keyword score
         if bm25_scores:
             bm25_sim = bm25_scores.get(mid, 0.0)
             score += w_bm25 * bm25_sim
-
-        # 7) TF-IDF keyword score
-        if tfidf_scores:
-            tfidf_sim = tfidf_scores.get(mid, 0.0)
-            score += w_tfidf * tfidf_sim
 
         if score > 0:
             scored.append((score, meal))
@@ -904,26 +722,7 @@ async def meal_detail(meal_id: str):
             measures.append({"ingredient": ing, "measure": meas})
     summary["measures"] = measures
 
-    # Visual neighbors (MobileNetV2 CNN)
-    if meal_id in IMAGE_FEATURES:
-        ref = IMAGE_FEATURES[meal_id]
-        sims = []
-        for other_id, feat in IMAGE_FEATURES.items():
-            if other_id == meal_id:
-                continue
-            sims.append((other_id, _cosine_sim(ref, feat)))
-        sims.sort(key=lambda x: x[1], reverse=True)
-        summary["visual_neighbors"] = [
-            {
-                "id": oid,
-                "name": MEAL_INDEX[oid]["strMeal"],
-                "thumbnail": MEAL_INDEX[oid].get("strMealThumb", ""),
-                "similarity": round(s, 4),
-            }
-            for oid, s in sims[:6]
-        ]
-
-    # Semantic neighbors (MPNet transformer)
+    # Semantic neighbors (MiniLM transformer)
     sem_sims = _semantic_similarity(meal_id)
     if sem_sims:
         top_sem = sorted(sem_sims.items(), key=lambda x: x[1], reverse=True)[:6]

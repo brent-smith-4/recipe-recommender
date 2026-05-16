@@ -1,0 +1,121 @@
+{
+  "type2_semantic": [
+    {
+      "id": "s01",
+      "query": "Thai noodle dish",
+      "filters": {"area": "Thai"}
+    },
+    {
+      "id": "s02",
+      "query": "pasta recipe",
+      "filters": {"category": "Pasta"}
+    },
+    {
+      "id": "s03",
+      "query": "chocolate dessert",
+      "filters": {"category": "Dessert", "require_ingredient": "chocolate"}
+    },
+    {
+      "id": "s04",
+      "query": "Indian curry",
+      "filters": {"area": "Indian"}
+    },
+    {
+      "id": "s05",
+      "query": "Japanese meal",
+      "filters": {"area": "Japanese"}
+    },
+    {
+      "id": "s06",
+      "query": "Mexican food",
+      "filters": {"area": "Mexican"}
+    },
+    {
+      "id": "s07",
+      "query": "Chinese stir fry",
+      "filters": {"area": "Chinese"}
+    },
+    {
+      "id": "s08",
+      "query": "chicken dish",
+      "filters": {"category": "Chicken"}
+    },
+    {
+      "id": "s09",
+      "query": "lamb recipe",
+      "filters": {"category": "Lamb"}
+    },
+    {
+      "id": "s10",
+      "query": "seafood recipe",
+      "filters": {"category": "Seafood"}
+    },
+    {
+      "id": "s11",
+      "query": "vegan meal",
+      "filters": {"category": "Vegan"}
+    },
+    {
+      "id": "s12",
+      "query": "Italian recipe",
+      "filters": {"area": "Italian"}
+    },
+    {
+      "id": "s13",
+      "query": "French cuisine",
+      "filters": {"area": "French"}
+    },
+    {
+      "id": "s14",
+      "query": "Greek food",
+      "filters": {"area": "Greek"}
+    },
+    {
+      "id": "s15",
+      "query": "Moroccan stew or tagine",
+      "filters": {"area": "Moroccan"}
+    },
+    {
+      "id": "s16",
+      "query": "pork dish",
+      "filters": {"category": "Pork"}
+    },
+    {
+      "id": "s17",
+      "query": "beef dinner",
+      "filters": {"category": "Beef"}
+    },
+    {
+      "id": "s18",
+      "query": "British dish",
+      "filters": {"area": "British"}
+    },
+    {
+      "id": "s19",
+      "query": "American comfort food",
+      "filters": {"area": "American"}
+    },
+    {
+      "id": "s20",
+      "query": "vegetarian recipe",
+      "filters": {"category": "Vegetarian"}
+    }
+  ],
+  "type3_hand_labeled": [
+    {"id": "h01", "query": "chicken tikka masala",  "relevant_ids": []},
+    {"id": "h02", "query": "spaghetti bolognese",   "relevant_ids": []},
+    {"id": "h03", "query": "fish and chips",         "relevant_ids": []},
+    {"id": "h04", "query": "pad thai noodles",       "relevant_ids": []},
+    {"id": "h05", "query": "chocolate lava cake",    "relevant_ids": []},
+    {"id": "h06", "query": "beef tacos",             "relevant_ids": []},
+    {"id": "h07", "query": "mushroom risotto",       "relevant_ids": []},
+    {"id": "h08", "query": "French onion soup",      "relevant_ids": []},
+    {"id": "h09", "query": "Greek moussaka",         "relevant_ids": []},
+    {"id": "h10", "query": "pulled pork",            "relevant_ids": []},
+    {"id": "h11", "query": "banana bread",           "relevant_ids": []},
+    {"id": "h12", "query": "honey garlic shrimp",    "relevant_ids": []},
+    {"id": "h13", "query": "Caesar salad",           "relevant_ids": []},
+    {"id": "h14", "query": "beef burger",            "relevant_ids": []},
+    {"id": "h15", "query": "vegetable curry",        "relevant_ids": []}
+  ]
+}
