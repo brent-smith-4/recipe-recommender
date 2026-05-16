@@ -199,7 +199,7 @@ footer .frog-footer{font-size:1.4rem;display:block;margin-bottom:.3rem}
       <label class="field">
         Ingredients you have
         <div class="ing-input-wrap">
-          <input type="text" id="ingInput" placeholder="Type an ingredient..." autocomplete="off">
+          <input type="text" id="ingInput" placeholder="Type an ingredient, press Enter to add..." autocomplete="off">
           <div class="autocomplete-list" id="ingAC"></div>
         </div>
         <div class="chips" id="ingChips"></div>
@@ -314,8 +314,13 @@ ingAC.addEventListener('click', e => {
 
 ingInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
-    const first = ingAC.querySelector('div');
-    if (first) first.click();
+    const val = ingInput.value.trim().toLowerCase();
+    if (val.length >= 2 && !selectedIngredients.includes(val)) {
+      selectedIngredients.push(val);
+      renderChips();
+    }
+    ingInput.value = '';
+    ingAC.classList.remove('show');
     e.preventDefault();
   }
 });
