@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Mise — find recipes by ingredients, cuisine, or natural language. Powered by MiniLM sentence transformers and BM25.">
 <title>Mise | Recipe Recommender</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
@@ -52,7 +53,7 @@ main{max-width:1100px;margin:0 auto;padding:2rem 1.5rem 4rem}
   border-radius:0 0 4px 4px;
 }
 .search-panel h2{font-family:var(--font-display);font-size:1.4rem;margin-bottom:1.2rem;color:var(--accent-dark)}
-.filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.filter-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
 @media(max-width:640px){.filter-grid{grid-template-columns:1fr}}
 
 label.field{display:flex;flex-direction:column;gap:.35rem;font-size:.85rem;font-weight:500;color:var(--muted)}
@@ -92,6 +93,7 @@ label.field input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0
 }
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-dark);transform:translateY(-1px);box-shadow:0 4px 14px rgba(61,139,55,.3)}
+.btn:disabled{opacity:.6;cursor:not-allowed;transform:none !important;box-shadow:none !important}
 .btn-secondary{background:transparent;color:var(--muted);border:1px solid var(--border)}
 .btn-secondary:hover{border-color:var(--accent);color:var(--accent-dark)}
 .btn svg{width:18px;height:18px}
@@ -171,6 +173,8 @@ label.field input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0
 .startup-banner.show{display:flex}
 .startup-banner .spinner{width:20px;height:20px;margin:0;border-width:2px}
 
+@media(max-width:480px){.modal-content{padding:1.2rem 1rem 1.5rem}}
+
 /* --- FOOTER FROG --- */
 footer{text-align:center;padding:2rem;color:var(--muted);font-size:.82rem}
 footer .frog-footer{font-size:1.4rem;display:block;margin-bottom:.3rem}
@@ -180,13 +184,13 @@ footer .frog-footer{font-size:1.4rem;display:block;margin-bottom:.3rem}
 
 <header>
   <h1>Mise <span class="frog">&#x1F438;</span></h1>
-  <p>ML-powered recipe discovery by ingredients, cuisine, text, and visual similarity.</p>
+  <p>Find recipes from what's in your pantry — or just describe what you're craving.</p>
 </header>
 
 <main>
   <div class="startup-banner" id="startupBanner">
     <div class="spinner"></div>
-    <span>Warming up the lily pad | loading meals &amp; building image index...</span>
+    <span>Warming up the lily pad | loading meals &amp; building indices...</span>
   </div>
 
   <div class="search-panel">
@@ -207,10 +211,6 @@ footer .frog-footer{font-size:1.4rem;display:block;margin-bottom:.3rem}
       <label class="field">
         Category
         <select id="catSelect"><option value="">Any category</option></select>
-      </label>
-      <label class="field">
-        Looks like... (visual similarity)
-        <select id="simSelect"><option value="">Pick a reference meal</option></select>
       </label>
       <label class="field" style="grid-column:1/-1">
         Describe what you're craving (semantic search)
@@ -239,7 +239,7 @@ footer .frog-footer{font-size:1.4rem;display:block;margin-bottom:.3rem}
 
 <footer>
   <span class="frog-footer">&#x1F438;</span>
-  Mise | powered by TheMealDB, MobileNetV2 &amp; TF-IDF
+  Mise | powered by TheMealDB, MiniLM &amp; BM25
 </footer>
 
 <!-- DETAIL MODAL -->
@@ -286,16 +286,6 @@ async function init() {
     catSelect.appendChild(o);
   });
 
-  try {
-    const rr = await fetch(`${API}/api/random?n=20`);
-    const randoms = await rr.json();
-    const simSelect = document.getElementById('simSelect');
-    randoms.forEach(m => {
-      const o = document.createElement('option');
-      o.value = m.id; o.textContent = m.name;
-      simSelect.appendChild(o);
-    });
-  } catch {}
 }
 init();
 
@@ -346,15 +336,21 @@ function removeIng(i) {
 
 // ---- Search ----
 document.getElementById('searchBtn').addEventListener('click', doSearch);
+document.getElementById('textQuery').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
 async function doSearch() {
+  const btn = document.getElementById('searchBtn');
+  btn.disabled = true;
+  btn.innerHTML = 'Searching…';
+
   const params = new URLSearchParams();
   if (selectedIngredients.length) params.set('ingredients', selectedIngredients.join(','));
   const cat = document.getElementById('catSelect').value;
   if (cat) params.set('category', cat);
   const area = document.getElementById('areaSelect').value;
   if (area) params.set('area', area);
-  const sim = document.getElementById('simSelect').value;
-  if (sim) params.set('similar_to', sim);
   const textQ = document.getElementById('textQuery').value.trim();
   if (textQ) params.set('text_query', textQ);
   params.set('limit', '18');
@@ -366,6 +362,9 @@ async function doSearch() {
     renderResults(data.results, data.count);
   } catch (err) {
     document.getElementById('resultsArea').innerHTML = `<div class="empty"><span class="frog-icon">&#x1F438;</span><p>Something went wrong. Is the server running?</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Recommend';
   }
 }
 
@@ -385,7 +384,6 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   renderChips();
   document.getElementById('catSelect').value = '';
   document.getElementById('areaSelect').value = '';
-  document.getElementById('simSelect').value = '';
   document.getElementById('textQuery').value = '';
   document.getElementById('resultsArea').innerHTML = `<div class="empty"><span class="frog-icon">&#x1F438;</span><p>Set some filters above and hit <strong>Recommend</strong> or try <strong>Surprise me</strong>!</p></div>`;
 });
@@ -443,18 +441,11 @@ async function openDetail(id) {
       html += `<h3>Instructions</h3><p>${m.instructions}</p>`;
     }
     html += '<div class="links">';
-    if (m.youtube) html += `<a href="${m.youtube}" target="_blank">&#9654; YouTube</a>`;
-    if (m.source) html += `<a href="${m.source}" target="_blank">Source</a>`;
+    if (m.youtube) html += `<a href="${m.youtube}" target="_blank" rel="noopener noreferrer">&#9654; YouTube</a>`;
+    if (m.source) html += `<a href="${m.source}" target="_blank" rel="noopener noreferrer">Source</a>`;
     html += '</div>';
-    if (m.visual_neighbors && m.visual_neighbors.length) {
-      html += `<h3>Visually Similar (CNN)</h3><div class="neighbors">`;
-      m.visual_neighbors.forEach(n => {
-        html += `<div class="neighbor-card" onclick="openDetail('${n.id}')"><img src="${n.thumbnail}/preview" alt="${n.name}"><span>${n.name}</span></div>`;
-      });
-      html += '</div>';
-    }
     if (m.semantic_neighbors && m.semantic_neighbors.length) {
-      html += `<h3>Semantically Similar (MPNet)</h3><div class="neighbors">`;
+      html += `<h3>Semantically Similar (MiniLM)</h3><div class="neighbors">`;
       m.semantic_neighbors.forEach(n => {
         html += `<div class="neighbor-card" onclick="openDetail('${n.id}')"><img src="${n.thumbnail}/preview" alt="${n.name}"><span>${n.name}</span></div>`;
       });
