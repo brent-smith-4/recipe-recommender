@@ -135,6 +135,16 @@ Run the eval harness:
 ```bash
 python eval/harness.py
 ```
+## Production Lessons
+
+- **Initial sizing was wrong.** Deployed on 256MB based on local memory profiling, 
+  which didn't account for PyTorch's inference-time allocations. First semantic queries 
+  in production triggered OOM kills (anon-rss ~386MB at crash time).
+- **Diagnosis:** Fly.io machine logs showed clear `Out of memory: Killed process` 
+  entries correlated with `/api/recommend` requests carrying text queries. 
+  Non-semantic endpoints (`/api/random`, ingredient-only search) worked fine.
+- **Fix:** Scaled to 1024MB. Future optimization path: ONNX Runtime would reduce 
+  inference memory footprint significantly and allow returning to a smaller tier.
 
 ---
 
