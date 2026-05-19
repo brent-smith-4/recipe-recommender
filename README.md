@@ -6,6 +6,8 @@ Built with **FastAPI** + **PyTorch** + **scikit-learn** + **NLTK** + **TheMealDB
 
 ---
 
+Live Demo Link: https://mise-recipe-recommender.fly.dev/
+
 ## Features
 
 - **Semantic search** — describe what you want in natural language; the transformer finds recipes by *meaning*, not just keywords
