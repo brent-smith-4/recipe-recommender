@@ -1,12 +1,8 @@
-# Mise — ML-Powered Recipe Recommender
+# Mise — Recipe Recommender
 
-Find recipes by what you're craving, what's in your kitchen, or what cuisine you want. Mise combines a sentence transformer, BM25 keyword ranking, and stemmed ingredient matching into a single relevance score.
+**Live demo:** [mise-recipe-recommender.fly.dev](https://mise-recipe-recommender.fly.dev)
 
-Built with **FastAPI** + **PyTorch** + **scikit-learn** + **NLTK** + **TheMealDB**.
-
----
-
-Live Demo Link: https://mise-recipe-recommender.fly.dev/
+A hybrid recipe search system combining BM25 keyword matching and sentence-transformer semantic embeddings. Built with FastAPI, deployed on Fly.io.
 
 ## Features
 
