@@ -101,21 +101,85 @@
       "filters": {"category": "Vegetarian"}
     }
   ],
-  "type3_hand_labeled": [
-    {"id": "h01", "query": "chicken tikka masala",  "relevant_ids": []},
-    {"id": "h02", "query": "spaghetti bolognese",   "relevant_ids": []},
-    {"id": "h03", "query": "fish and chips",         "relevant_ids": []},
-    {"id": "h04", "query": "pad thai noodles",       "relevant_ids": []},
-    {"id": "h05", "query": "chocolate lava cake",    "relevant_ids": []},
-    {"id": "h06", "query": "beef tacos",             "relevant_ids": []},
-    {"id": "h07", "query": "mushroom risotto",       "relevant_ids": []},
-    {"id": "h08", "query": "French onion soup",      "relevant_ids": []},
-    {"id": "h09", "query": "Greek moussaka",         "relevant_ids": []},
-    {"id": "h10", "query": "pulled pork",            "relevant_ids": []},
-    {"id": "h11", "query": "banana bread",           "relevant_ids": []},
-    {"id": "h12", "query": "honey garlic shrimp",    "relevant_ids": []},
-    {"id": "h13", "query": "Caesar salad",           "relevant_ids": []},
-    {"id": "h14", "query": "beef burger",            "relevant_ids": []},
-    {"id": "h15", "query": "vegetable curry",        "relevant_ids": []}
+
+  "type4_human_style": [
+    {
+      "id": "p01",
+      "query": "pasta bolognese",
+      "relevant_ids": ["52770"]
+    },
+    {
+      "id": "p02",
+      "query": "spicy tofu",
+      "relevant_ids": ["52947"]
+    },
+    {
+      "id": "p03",
+      "query": "beef mushroom pastry",
+      "relevant_ids": ["52803"]
+    },
+    {
+      "id": "p04",
+      "query": "creamy blackberry dessert",
+      "relevant_ids": ["52891"]
+    },
+    {
+      "id": "p05",
+      "query": "indian lamb rice",
+      "relevant_ids": ["52805"]
+    },
+    {
+      "id": "p06",
+      "query": "beef mayo sandwich",
+      "relevant_ids": ["53052"]
+    },
+    {
+      "id": "p07",
+      "query": "creamy vegetable medley",
+      "relevant_ids": ["53340"]
+    },
+    {
+      "id": "p08",
+      "query": "sausage batter bake",
+      "relevant_ids": ["52822"]
+    },
+    {
+      "id": "p09",
+      "query": "spanish seafood rice dish",
+      "relevant_ids": ["53151"]
+    },
+    {
+      "id": "p10",
+      "query": "Greek eggplant casserole",
+      "relevant_ids": ["53006"]
+    }
+  ],
+
+  "type5_constraint": [
+    {
+      "id": "h01",
+      "query": "warm creamy soup",
+      "relevant_ids": ["52841", "52840", "53122"]
+    },
+    {
+      "id": "h02",
+      "query": "spicy but vegetarian",
+      "relevant_ids": ["52785", "53254", "53357", "52973"]
+    },
+    {
+      "id": "h03",
+      "query": "creamy without dairy",
+      "relevant_ids": ["53074", "53208", "53214", "53210", "53169"]
+    },
+    {
+      "id": "h04",
+      "query": "sweet and spicy",
+      "relevant_ids": ["53192", "52937", "53231"]
+    },
+    {
+      "id": "h05",
+      "query": "curry without coconut",
+      "relevant_ids": ["53345", "53354", "52820", "53112", "52868"]
+    }
   ]
 }

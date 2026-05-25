@@ -13,8 +13,18 @@ Type 2 — Semantic with programmatic ground truth (~20 queries)
     Relevant set derived at runtime from strArea/strCategory/ingredient filters.
     Metrics: Precision@5, Recall@10.
 
-Type 3 — Hand-labeled stubs (~15 queries)
-    Queries with relevant_ids you fill in manually in queries.json.
+Type 3 — Exact name match (auto-generated, default n=50, seed=42)
+    Samples recipes and uses the exact recipe name as the query.
+    Relevant set: the source recipe only.
+    Metrics: Precision@1.
+
+Type 4 — Human-style name queries (hand-labeled, queries.json: type4_human_style)
+    Hand-picked recipes with queries written as a human would type them.
+    Each entry has a single relevant_id. Stubs (empty relevant_ids) are skipped.
+    Metrics: MRR.
+
+Type 5 — Constraint & negation (hand-labeled, queries.json: type5_constraint)
+    Vague, conjunctive, or negation queries (e.g. "creamy without dairy").
     Stubs (empty relevant_ids) are skipped with a count shown in the report.
     Metrics: Precision@5, Precision@10.
 
@@ -253,10 +263,57 @@ def run_type2(queries: list[dict], weights: dict) -> dict:
     }
 
 
-def run_type3(queries: list[dict], weights: dict) -> dict:
+def run_type3(weights: dict, n: int = 50, seed: int = 42) -> dict:
     """
-    Queries with hand-labeled relevant_ids. Entries with empty relevant_ids
-    are stubs waiting to be filled in — they are skipped and counted separately.
+    Sample n recipes and query by exact recipe name. Relevant set is the
+    source recipe only. Measures whether the system surfaces it at rank 1.
+    """
+    rng = random.Random(seed)
+    sampled = rng.sample(rec.MEALS, min(n, len(rec.MEALS)))
+
+    p1s: list[float] = []
+    for meal in sampled:
+        ranked = _score_meals(query_text=meal["strMeal"], weights=weights)
+        p1s.append(_precision_at_k(ranked, {meal["idMeal"]}, 1))
+
+    n_q = len(sampled)
+    return {
+        "n":           n_q,
+        "seed":        seed,
+        "Precision@1": sum(p1s) / n_q if n_q else 0.0,
+        "misses":      sum(1 for p in p1s if p == 0.0),
+    }
+
+
+def run_type4(queries: list[dict], weights: dict) -> dict:
+    """
+    Hand-picked recipes with human-style name queries. Each entry should have
+    a single relevant_id. Stubs (empty relevant_ids) are skipped.
+    """
+    mrrs: list[float] = []
+    stubs = 0
+
+    for q in queries:
+        relevant = set(q.get("relevant_ids", []))
+        if not relevant:
+            stubs += 1
+            continue
+        ranked = _score_meals(query_text=q["query"], weights=weights)
+        mrrs.append(_mrr(ranked, relevant))
+
+    n_eval = len(mrrs)
+    return {
+        "n":             len(queries),
+        "n_labeled":     n_eval,
+        "stubs_skipped": stubs,
+        "MRR":           sum(mrrs) / n_eval if n_eval else 0.0,
+    }
+
+
+def run_type5(queries: list[dict], weights: dict) -> dict:
+    """
+    Vague, conjunctive, or negation queries with hand-labeled relevant_ids.
+    Stubs (empty relevant_ids) are skipped and counted separately.
     """
     p5s:  list[float] = []
     p10s: list[float] = []
@@ -288,10 +345,11 @@ def run_type3(queries: list[dict], weights: dict) -> dict:
 def run_eval(
     weights: dict | None = None,
     type1_n: int = 50,
+    type3_n: int = 50,
     seed: int = 42,
 ) -> dict:
     """
-    Run all three query types and return a results dict.
+    Run all five query types and return a results dict.
     init_recommender() must be called before this.
 
     Returns:
@@ -299,7 +357,9 @@ def run_eval(
             "weights": {...},
             "type1":   {"n", "Recall@10", "MRR", "misses"},
             "type2":   {"n", "n_evaluated", "skipped_empty_gt", "Precision@5", "Recall@10"},
-            "type3":   {"n", "n_labeled", "stubs_skipped", "Precision@5", "Precision@10"},
+            "type3":   {"n", "seed", "Precision@1", "misses"},
+            "type4":   {"n", "n_labeled", "stubs_skipped", "MRR"},
+            "type5":   {"n", "n_labeled", "stubs_skipped", "Precision@5", "Precision@10"},
         }
     """
     w = weights or DEFAULT_WEIGHTS
@@ -308,7 +368,9 @@ def run_eval(
         "weights": w,
         "type1": run_type1(w, n=type1_n, seed=seed),
         "type2": run_type2(queries.get("type2_semantic", []), w),
-        "type3": run_type3(queries.get("type3_hand_labeled", []), w),
+        "type3": run_type3(w, n=type3_n, seed=seed),
+        "type4": run_type4(queries.get("type4_human_style", []), w),
+        "type5": run_type5(queries.get("type5_constraint", []), w),
     }
 
 
@@ -321,6 +383,8 @@ def print_report(results: dict) -> None:
     t1 = results["type1"]
     t2 = results["type2"]
     t3 = results["type3"]
+    t4 = results["type4"]
+    t5 = results["type5"]
     sep = "=" * 64
 
     print(f"\n{sep}")
@@ -345,13 +409,29 @@ def print_report(results: dict) -> None:
     print(f"    Precision@5 : {t2['Precision@5']:.4f}")
     print(f"    Recall@10   : {t2['Recall@10']:.4f}")
 
-    print(f"\n  TYPE 3 — Hand-Labeled  "
-          f"(n={t3['n']}, labeled={t3['n_labeled']}, stubs={t3['stubs_skipped']})")
-    if t3["n_labeled"] > 0:
-        print(f"    Precision@5  : {t3['Precision@5']:.4f}")
-        print(f"    Precision@10 : {t3['Precision@10']:.4f}")
+    print(f"\n  TYPE 3 — Exact Name Match  "
+          f"(auto-generated, n={t3['n']}, seed={t3['seed']})")
+    print(f"    Precision@1 : {t3['Precision@1']:.4f}")
+    print(f"    Misses      : {t3['misses']} / {t3['n']}  (source not at rank 1)")
+
+    print(f"\n  TYPE 4 — Human-Style Name Queries  "
+          f"(n={t4['n']}, labeled={t4['n_labeled']}"
+          + (f", stubs={t4['stubs_skipped']}" if t4["stubs_skipped"] else "")
+          + ")")
+    if t4["n_labeled"] > 0:
+        print(f"    MRR : {t4['MRR']:.4f}")
     else:
-        print("    Fill in relevant_ids in eval/queries.json to activate Type 3 metrics.")
+        print("    Fill in type4_human_style entries in eval/queries.json to activate.")
+
+    print(f"\n  TYPE 5 — Constraint & Negation  "
+          f"(n={t5['n']}, labeled={t5['n_labeled']}"
+          + (f", stubs={t5['stubs_skipped']}" if t5["stubs_skipped"] else "")
+          + ")")
+    if t5["n_labeled"] > 0:
+        print(f"    Precision@5  : {t5['Precision@5']:.4f}")
+        print(f"    Precision@10 : {t5['Precision@10']:.4f}")
+    else:
+        print("    Fill in type5_constraint entries in eval/queries.json to activate.")
 
     print(f"\n{sep}\n")
 
