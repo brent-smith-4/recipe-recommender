@@ -67,7 +67,7 @@ mise/
 │   └── index.html              # Frontend UI
 ├── static/
 ├── eval/
-│   ├── harness.py              # Eval harness (Type 1/2/3 queries)
+│   ├── harness.py              # Eval harness (Type 1-5 queries)
 │   └── queries.json            # Semantic and hand-labeled eval queries
 ├── requirements.txt
 ├── Dockerfile
@@ -121,17 +121,32 @@ uvicorn app:app --reload
 
 ## Eval Results (v5, all-MiniLM-L6-v2)
 
-| Metric | Score |
-|---|---|
-| Type 1 Recall@10 (ingredient recall, n=50) | 0.9600 |
-| Type 1 MRR | 0.8502 |
-| Type 2 Precision@5 (semantic + category GT, n=20) | 0.9294 |
-| Type 2 Recall@10 | 0.4907 |
+The harness covers five query types, ranging from auto-generated ingredient and name-match tests to hand-labeled constraint and negation queries.
+
+| Type | Description | Metric | Score |
+|---|---|---|---|
+| Type 1 | Ingredient recall (auto, n=50) | Recall@10 | 0.9600 |
+| Type 1 | | MRR | 0.8502 |
+| Type 2 | Semantic + category GT (n=20) | Precision@5 | 0.9294 |
+| Type 2 | | Recall@10 | 0.4907 |
+| Type 3 | Exact name match (auto, n=50, seed=42) | Precision@1 | 1.0000 |
+| Type 4 | Human-style name queries (n=10) | MRR | 0.5483 |
+| Type 5 | Constraint & negation (n=5) | Precision@5 | 0.0800 |
+| Type 5 | | Precision@10 | 0.0400 |
+
+Types 1 and 3 are auto-generated at runtime — no ground truth to maintain. Types 4 and 5 are hand-labeled in `eval/queries.json`. Type 5 scores are intentionally low: these queries (e.g. "creamy without dairy", "curry without coconut") require attribute reasoning the current fusion scorer does not support.
 
 Run the eval harness:
 
 ```bash
 python eval/harness.py
+```
+
+Custom weights and sample sizes:
+
+```bash
+python eval/harness.py --w-semantic 0.50 --w-bm25 0.20 --w-ingredient 0.15 --w-category 0.10 --w-area 0.05
+python eval/harness.py --type1-n 30 --seed 7
 ```
 ## Production Lessons
 
