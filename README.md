@@ -6,12 +6,12 @@ A hybrid recipe search system combining BM25 keyword matching and sentence-trans
 
 ## Features
 
-- **Semantic search** — describe what you want in natural language; the transformer finds recipes by *meaning*, not just keywords
-- **BM25 keyword ranking** — the same algorithm used by Elasticsearch, with cooking-specific stop word removal
-- **Stemmed ingredient matching** — "tomatoes" matches canned tomatoes, roma tomatoes, tomato paste, and cherry tomatoes using Porter stemming with a core-word heuristic
-- **Cuisine & category filters** — narrow by region and meal type
-- **5-axis combined scoring** — all signals weighted and merged into a single relevance score, tunable via API query params
-- **Meal detail view** — full recipe with semantically similar and keyword-similar neighbors
+- **Semantic search** - describe what you want in natural language; the transformer finds recipes by *meaning*, not just keywords
+- **BM25 keyword ranking** - the same algorithm used by Elasticsearch, with cooking-specific stop word removal
+- **Stemmed ingredient matching** - "tomatoes" matches canned tomatoes, roma tomatoes, tomato paste, and cherry tomatoes using Porter stemming with a core-word heuristic
+- **Cuisine & category filters** - narrow by region and meal type
+- **5-axis combined scoring** - all signals weighted and merged into a single relevance score, tunable via API query params
+- **Meal detail view** - full recipe with semantically similar and keyword-similar neighbors
 
 ---
 
@@ -134,7 +134,7 @@ The harness covers five query types, ranging from auto-generated ingredient and 
 | Type 5 | Constraint & negation (n=5) | Precision@5 | 0.0800 |
 | Type 5 | | Precision@10 | 0.0400 |
 
-Types 1 and 3 are auto-generated at runtime — no ground truth to maintain. Types 4 and 5 are hand-labeled in `eval/queries.json`. Type 5 scores are intentionally low: these queries (e.g. "creamy without dairy", "curry without coconut") require attribute reasoning the current fusion scorer does not support.
+Types 1 and 3 are auto-generated at runtime. There's no ground truth to maintain. Types 4 and 5 are hand-labeled in `eval/queries.json`. Type 5 scores are intentionally low: these queries (e.g. "creamy without dairy", "curry without coconut") require attribute reasoning the current fusion scorer does not support.
 
 Run the eval harness:
 
