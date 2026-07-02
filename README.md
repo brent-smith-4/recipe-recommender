@@ -1,4 +1,4 @@
-# Mise — Recipe Recommender
+# Mise - Recipe Recommender
 
 **Live demo:** [mise-recipe-recommender.fly.dev](https://mise-recipe-recommender.fly.dev)
 
